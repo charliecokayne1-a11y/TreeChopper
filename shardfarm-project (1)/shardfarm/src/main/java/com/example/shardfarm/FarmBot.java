@@ -19,18 +19,22 @@ import java.util.Locale;
 import java.util.function.Predicate;
 
 /**
- * Loop: plant sapling -> bone meal until it grows -> chop logs in reach -> repeat.
- * Everything runs on the client tick, one action per configured delay.
+ * Loop: plant a 2x2 of saplings -> bone meal one until it grows -> break the bottom log -> repeat.
  */
 public final class FarmBot {
     private FarmBot() {}
 
     private enum State { PLANT, BONEMEAL, CHOP }
 
+    /** Ticks to wait after breaking the bottom log (20 ticks = 1 second). */
+    private static final int AFTER_CHOP_WAIT_TICKS = 40;
+
     private static boolean running;
     private static State state = State.PLANT;
-    private static BlockPos groundPos;
-    private static BlockPos plantPos;
+    private static final BlockPos[] groundPos = new BlockPos[4];
+    private static final BlockPos[] plantPos = new BlockPos[4];
+    private static final int[] plantAttempts = new int[4];
+    private static BlockPos chopTarget;
     private static int cooldown;
     private static int idleTicks;
     private static int boneMealUses;
@@ -52,21 +56,26 @@ public final class FarmBot {
 
         HitResult target = c.crosshairTarget;
         if (target == null || target.getType() != HitResult.Type.BLOCK) {
-            msg(c, "Aim at the block you want to plant on, then start");
+            msg(c, "Aim at the near-left ground block of the 2x2, then start");
             return;
         }
-        BlockHitResult hit = (BlockHitResult) target;
-        BlockPos looked = hit.getBlockPos();
+        BlockPos looked = ((BlockHitResult) target).getBlockPos();
+        BlockPos ground = c.world.getBlockState(looked).isIn(BlockTags.SAPLINGS) ? looked.down() : looked;
 
-        if (c.world.getBlockState(looked).isIn(BlockTags.SAPLINGS)) {
-            plantPos = looked;
-            groundPos = looked.down();
-        } else {
-            groundPos = looked;
-            plantPos = looked.up();
+        // The 2x2 extends forward and to the right of the aimed block.
+        Direction forward = c.player.getHorizontalFacing();
+        Direction right = forward.rotateYClockwise();
+        groundPos[0] = ground;
+        groundPos[1] = ground.offset(forward);
+        groundPos[2] = ground.offset(right);
+        groundPos[3] = ground.offset(forward).offset(right);
+        for (int i = 0; i < 4; i++) {
+            plantPos[i] = groundPos[i].up();
+            plantAttempts[i] = 0;
         }
 
         state = State.PLANT;
+        chopTarget = null;
         cooldown = 0;
         idleTicks = 0;
         boneMealUses = 0;
@@ -76,6 +85,7 @@ public final class FarmBot {
 
     public static void stop(MinecraftClient c, String reason) {
         running = false;
+        chopTarget = null;
         msg(c, reason);
     }
 
@@ -101,52 +111,76 @@ public final class FarmBot {
 
     private static void plant(MinecraftClient c) {
         ClientPlayerEntity p = c.player;
-        BlockState s = c.world.getBlockState(plantPos);
 
-        if (s.isIn(BlockTags.SAPLINGS)) {
-            state = State.BONEMEAL;
-            boneMealUses = 0;
-            return;
+        // If a tree is still standing here, wait for it to fall.
+        for (int i = 0; i < 4; i++) {
+            if (isLog(c, plantPos[i])) {
+                if (++idleTicks > 100) {
+                    stop(c, "Logs are still standing - is your axe a tree feller?");
+                }
+                return;
+            }
         }
-        if (s.isIn(BlockTags.LOGS)) {
-            state = State.CHOP;
-            idleTicks = 0;
-            return;
-        }
-        if (!s.isAir()) {
-            stop(c, "Plant spot is blocked");
+        idleTicks = 0;
+
+        for (int i = 0; i < 4; i++) {
+            BlockState s = c.world.getBlockState(plantPos[i]);
+            if (s.isIn(BlockTags.SAPLINGS)) continue;
+            if (!s.isAir()) {
+                stop(c, "Plant spot " + (i + 1) + " is blocked");
+                return;
+            }
+            if (++plantAttempts[i] > 6) {
+                stop(c, "Can't place a sapling at spot " + (i + 1) + " (bad ground?)");
+                return;
+            }
+
+            int slot = findHotbar(p, st -> st.isIn(ItemTags.SAPLINGS));
+            if (slot < 0) {
+                stop(c, "No saplings in your hotbar");
+                return;
+            }
+            p.getInventory().setSelectedSlot(slot);
+
+            Vec3d hitPos = new Vec3d(plantPos[i].getX() + 0.5, plantPos[i].getY(), plantPos[i].getZ() + 0.5);
+            BlockHitResult hit = new BlockHitResult(hitPos, Direction.UP, groundPos[i], false);
+            c.interactionManager.interactBlock(p, Hand.MAIN_HAND, hit);
+            p.swingHand(Hand.MAIN_HAND);
+            cooldown = FarmConfig.actionDelayTicks;
             return;
         }
 
-        int slot = findHotbar(p, st -> st.isIn(ItemTags.SAPLINGS));
-        if (slot < 0) {
-            stop(c, "No saplings in your hotbar");
-            return;
-        }
-        p.getInventory().setSelectedSlot(slot);
-
-        Vec3d hitPos = new Vec3d(plantPos.getX() + 0.5, plantPos.getY(), plantPos.getZ() + 0.5);
-        BlockHitResult hit = new BlockHitResult(hitPos, Direction.UP, groundPos, false);
-        c.interactionManager.interactBlock(p, Hand.MAIN_HAND, hit);
-        p.swingHand(Hand.MAIN_HAND);
-        cooldown = FarmConfig.actionDelayTicks;
+        // All four saplings are in place.
+        for (int i = 0; i < 4; i++) plantAttempts[i] = 0;
+        boneMealUses = 0;
+        state = State.BONEMEAL;
     }
 
     private static void boneMeal(MinecraftClient c) {
         ClientPlayerEntity p = c.player;
-        BlockState s = c.world.getBlockState(plantPos);
 
-        if (s.isIn(BlockTags.LOGS)) {
-            state = State.CHOP;
-            idleTicks = 0;
-            return;
+        for (int i = 0; i < 4; i++) {
+            if (isLog(c, plantPos[i])) {
+                chopTarget = null;
+                idleTicks = 0;
+                state = State.CHOP;
+                return;
+            }
         }
-        if (!s.isIn(BlockTags.SAPLINGS)) {
+
+        BlockPos sapling = null;
+        for (int i = 0; i < 4; i++) {
+            if (c.world.getBlockState(plantPos[i]).isIn(BlockTags.SAPLINGS)) {
+                sapling = plantPos[i];
+                break;
+            }
+        }
+        if (sapling == null) {
             state = State.PLANT;
             return;
         }
         if (boneMealUses >= FarmConfig.maxBoneMealPerSapling) {
-            stop(c, "Sapling didn't grow (blocked by something above it?)");
+            stop(c, "Tree didn't grow (not enough space above?)");
             return;
         }
 
@@ -157,7 +191,7 @@ public final class FarmBot {
         }
         p.getInventory().setSelectedSlot(slot);
 
-        BlockHitResult hit = new BlockHitResult(Vec3d.ofCenter(plantPos), Direction.UP, plantPos, false);
+        BlockHitResult hit = new BlockHitResult(Vec3d.ofCenter(sapling), Direction.UP, sapling, false);
         c.interactionManager.interactBlock(p, Hand.MAIN_HAND, hit);
         p.swingHand(Hand.MAIN_HAND);
         boneMealUses++;
@@ -167,58 +201,70 @@ public final class FarmBot {
     private static void chop(MinecraftClient c) {
         ClientPlayerEntity p = c.player;
 
+        if (chopTarget == null) {
+            chopTarget = findBottomLogInReach(c);
+            if (chopTarget == null) {
+                boolean anyLog = false;
+                for (int i = 0; i < 4; i++) {
+                    if (isLog(c, plantPos[i])) anyLog = true;
+                }
+                if (anyLog) {
+                    if (++idleTicks > 60) stop(c, "Bottom log is out of reach - stand closer");
+                    return;
+                }
+                idleTicks = 0;
+                cooldown = AFTER_CHOP_WAIT_TICKS;
+                state = State.PLANT;
+                return;
+            }
+        }
+
+        // Bottom log is gone (broken or felled): wait a moment, then replant.
+        if (!isLog(c, chopTarget)) {
+            chopTarget = null;
+            idleTicks = 0;
+            cooldown = AFTER_CHOP_WAIT_TICKS;
+            state = State.PLANT;
+            return;
+        }
+
         int axe = findHotbar(p, FarmBot::isShardAxe);
         if (axe < 0) {
             stop(c, "No matching axe in your hotbar");
             return;
         }
-
-        BlockPos log = nearestLog(c);
-        if (log == null) {
-            // No logs left in reach; after a short pause start the next sapling.
-            if (++idleTicks > 10) {
-                idleTicks = 0;
-                state = State.PLANT;
-            }
-            return;
-        }
-        idleTicks = 0;
-
         p.getInventory().setSelectedSlot(axe);
+
         Vec3d eye = p.getEyePos();
-        Vec3d center = Vec3d.ofCenter(log);
+        Vec3d center = Vec3d.ofCenter(chopTarget);
         Direction face = Direction.getFacing(eye.x - center.x, eye.y - center.y, eye.z - center.z);
 
         // Keeps calling this each tick until the block breaks.
-        c.interactionManager.updateBlockBreakingProgress(log, face);
+        c.interactionManager.updateBlockBreakingProgress(chopTarget, face);
         p.swingHand(Hand.MAIN_HAND);
     }
 
     // ---- helpers ---------------------------------------------------------
 
-    private static BlockPos nearestLog(MinecraftClient c) {
+    private static boolean isLog(MinecraftClient c, BlockPos pos) {
+        return c.world.getBlockState(pos).isIn(BlockTags.LOGS);
+    }
+
+    /** One of the four trunk-base positions that holds a log and is within reach. */
+    private static BlockPos findBottomLogInReach(MinecraftClient c) {
         ClientPlayerEntity p = c.player;
         Vec3d eye = p.getEyePos();
         double reach = p.getBlockInteractionRange() - 0.5;
         double reachSq = reach * reach;
 
         BlockPos best = null;
-        double bestScore = Double.MAX_VALUE;
-
-        for (int dx = -4; dx <= 4; dx++) {
-            for (int dy = 0; dy <= 10; dy++) {
-                for (int dz = -4; dz <= 4; dz++) {
-                    BlockPos pos = plantPos.add(dx, dy, dz);
-                    if (!c.world.getBlockState(pos).isIn(BlockTags.LOGS)) continue;
-                    double distSq = eye.squaredDistanceTo(Vec3d.ofCenter(pos));
-                    if (distSq > reachSq) continue;
-                    // Lowest logs first, then closest.
-                    double score = pos.getY() * 1000.0 + distSq;
-                    if (score < bestScore) {
-                        bestScore = score;
-                        best = pos;
-                    }
-                }
+        double bestDist = Double.MAX_VALUE;
+        for (int i = 0; i < 4; i++) {
+            if (!isLog(c, plantPos[i])) continue;
+            double d = eye.squaredDistanceTo(Vec3d.ofCenter(plantPos[i]));
+            if (d <= reachSq && d < bestDist) {
+                bestDist = d;
+                best = plantPos[i];
             }
         }
         return best;
