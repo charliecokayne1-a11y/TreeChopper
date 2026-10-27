@@ -15,7 +15,8 @@ jobs:
         with:
           gradle-version: current
       - run: gradle build
+        working-directory: "shardfarm-project (1)/shardfarm"
       - uses: actions/upload-artifact@v4
         with:
           name: shardfarm-jar
-          path: build/libs/shardfarm-1.0.0.jar
+          path: "shardfarm-project (1)/shardfarm/build/libs/shardfarm-1.0.0.jar"
