@@ -1,15 +1,17 @@
 {
   "schemaVersion": 1,
-  "id": "shardfarm",
+  "id": "treechopper",
   "version": "1.0.0",
-  "name": "Shard Farm",
-  "description": "Client menu that plants saplings, bone meals them and chops the tree with your axe.",
-  "environment": "client",
+  "name": "TreeChopper",
+  "description": "Automatic 2x2 spruce tree farm.",
+  "environment": "*",
   "entrypoints": {
-    "client": ["com.example.shardfarm.ShardFarmClient"]
+    "main": [
+      "com.example.shardfarm.TreeChopper"
+    ]
   },
   "depends": {
-    "fabricloader": ">=0.16.0",
+    "fabricloader": ">=0.18.1",
     "minecraft": "~1.21.11",
     "java": ">=21",
     "fabric-api": "*"
