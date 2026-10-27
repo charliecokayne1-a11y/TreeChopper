@@ -1,9 +1,10 @@
+
 {
   "schemaVersion": 1,
   "id": "treechopper",
   "version": "1.0.0",
   "name": "TreeChopper",
-  "description": "Automatic 2x2 spruce tree farm.",
+  "description": "Safely replants 2x2 spruce saplings after a tree base is cleared.",
   "environment": "*",
   "entrypoints": {
     "main": [
