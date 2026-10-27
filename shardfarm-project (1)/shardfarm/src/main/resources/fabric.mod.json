@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "shardfarm",
+  "version": "1.0.0",
+  "name": "Shard Farm",
+  "description": "Client menu that plants saplings, bone meals them and chops the tree with your axe.",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["com.example.shardfarm.ShardFarmClient"]
+  },
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "minecraft": "~1.21.11",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}
