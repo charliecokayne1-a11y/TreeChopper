@@ -1,14 +1,17 @@
 
 {
   "schemaVersion": 1,
-  "id": "treechopper",
+  "id": "shardfarm",
   "version": "1.0.0",
-  "name": "TreeChopper",
-  "description": "Safely replants 2x2 spruce saplings after a tree base is cleared.",
+  "name": "Shard Farm",
+  "description": "Shard Farm menu with automatic 2x2 spruce replanting.",
   "environment": "*",
   "entrypoints": {
     "main": [
       "com.example.shardfarm.TreeChopper"
+    ],
+    "client": [
+      "com.example.shardfarm.ShardFarmClient"
     ]
   },
   "depends": {
