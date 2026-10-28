@@ -26,10 +26,6 @@ public final class FarmBot {
         PLANT, BONEMEAL, CHOP
     }
 
-    // Change this to NORTH, SOUTH, EAST or WEST.
-    // It is the direction you face while looking at the farm.
-    private static final Direction FARM_FACING = Direction.NORTH;
-
     private static final int AFTER_CHOP_WAIT_TICKS = 40;
 
     private static boolean running;
@@ -75,11 +71,12 @@ public final class FarmBot {
         BlockPos ground = c.world.getBlockState(looked)
                 .isIn(BlockTags.SAPLINGS) ? looked.down() : looked;
 
-        Direction forward = FARM_FACING;
+        // Read the direction selected in the FarmConfig setting.
+        Direction forward = FarmConfig.farmFacing;
         Direction right = forward.rotateYClockwise();
         Direction back = forward.getOpposite();
 
-        // Starting from the bottom-left block as seen on screen.
+        // Start at the bottom-left block from the selected viewing direction.
         // Order: top-left, top-right, bottom-right, bottom-left.
         groundPos[0] = ground.offset(back);
         groundPos[1] = ground.offset(back).offset(right);
@@ -98,7 +95,7 @@ public final class FarmBot {
         boneMealUses = 0;
         running = true;
 
-        msg(c, "Farming started (facing " + FARM_FACING + ")");
+        msg(c, "Farming started. Direction: " + forward);
     }
 
     public static void stop(MinecraftClient c, String reason) {
@@ -262,9 +259,7 @@ public final class FarmBot {
                 boolean anyLog = false;
 
                 for (int i = 0; i < 4; i++) {
-                    if (isLog(c, plantPos[i])) {
-                        anyLog = true;
-                    }
+                    if (isLog(c, plantPos[i])) anyLog = true;
                 }
 
                 if (anyLog) {
@@ -316,7 +311,6 @@ public final class FarmBot {
 
     private static void aimAt(
             ClientPlayerEntity player, Vec3d target) {
-
         Vec3d eye = player.getEyePos();
 
         double dx = target.x - eye.x;
@@ -379,7 +373,6 @@ public final class FarmBot {
     private static int findHotbar(
             ClientPlayerEntity player,
             Predicate<ItemStack> test) {
-
         for (int i = 0; i < 9; i++) {
             ItemStack stack = player.getInventory().getStack(i);
 
