@@ -14,7 +14,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: current
-      - run: gradle build
+    - run: gradle build
+  working-directory: "shardfarm-project (1)/shardfarm"
         working-directory: "shardfarm-project (1)/shardfarm"
       - uses: actions/upload-artifact@v4
         with:
