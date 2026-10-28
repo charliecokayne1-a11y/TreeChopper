@@ -26,6 +26,10 @@ public final class FarmBot {
         PLANT, BONEMEAL, CHOP
     }
 
+    // Change this to NORTH, SOUTH, EAST or WEST.
+    // It is the direction you face while looking at the farm.
+    private static final Direction FARM_FACING = Direction.NORTH;
+
     private static final int AFTER_CHOP_WAIT_TICKS = 40;
 
     private static boolean running;
@@ -60,8 +64,9 @@ public final class FarmBot {
 
         HitResult target = c.crosshairTarget;
 
-        if (target == null || target.getType() != HitResult.Type.BLOCK) {
-            msg(c, "Aim at the top-left ground block of the 2x2, then start");
+        if (target == null
+                || target.getType() != HitResult.Type.BLOCK) {
+            msg(c, "Aim at the bottom-left ground block of the 2x2, then start");
             return;
         }
 
@@ -70,18 +75,16 @@ public final class FarmBot {
         BlockPos ground = c.world.getBlockState(looked)
                 .isIn(BlockTags.SAPLINGS) ? looked.down() : looked;
 
-        Direction forward = c.player.getHorizontalFacing();
+        Direction forward = FARM_FACING;
         Direction right = forward.rotateYClockwise();
+        Direction back = forward.getOpposite();
 
-        // Placement order:
-        // 1. Top-left
-        // 2. Top-right
-        // 3. Bottom-right
-        // 4. Bottom-left
-        groundPos[0] = ground;
-        groundPos[1] = ground.offset(right);
-        groundPos[2] = ground.offset(right).offset(forward);
-        groundPos[3] = ground.offset(forward);
+        // Starting from the bottom-left block as seen on screen.
+        // Order: top-left, top-right, bottom-right, bottom-left.
+        groundPos[0] = ground.offset(back);
+        groundPos[1] = ground.offset(back).offset(right);
+        groundPos[2] = ground.offset(right);
+        groundPos[3] = ground;
 
         for (int i = 0; i < 4; i++) {
             plantPos[i] = groundPos[i].up();
@@ -95,7 +98,7 @@ public final class FarmBot {
         boneMealUses = 0;
         running = true;
 
-        msg(c, "Farming started");
+        msg(c, "Farming started (facing " + FARM_FACING + ")");
     }
 
     public static void stop(MinecraftClient c, String reason) {
@@ -127,16 +130,13 @@ public final class FarmBot {
         }
     }
 
-    // ---- Planting ---------------------------------------------------------
-
     private static void plant(MinecraftClient c) {
         ClientPlayerEntity p = c.player;
 
-        // Wait if a tree trunk is still occupying a planting position.
         for (int i = 0; i < 4; i++) {
             if (isLog(c, plantPos[i])) {
                 if (++idleTicks > 100) {
-                    stop(c, "Logs are still standing - clear the tree base first");
+                    stop(c, "Clear the tree base first");
                 }
                 return;
             }
@@ -147,9 +147,7 @@ public final class FarmBot {
         for (int i = 0; i < 4; i++) {
             BlockState block = c.world.getBlockState(plantPos[i]);
 
-            if (block.isIn(BlockTags.SAPLINGS)) {
-                continue;
-            }
+            if (block.isIn(BlockTags.SAPLINGS)) continue;
 
             if (!block.isAir()) {
                 stop(c, "Plant spot " + (i + 1) + " is blocked");
@@ -157,13 +155,12 @@ public final class FarmBot {
             }
 
             if (++plantAttempts[i] > 6) {
-                stop(c, "Can't place sapling at spot " + (i + 1)
-                        + " - check the ground and reach");
+                stop(c, "Cannot place sapling at spot " + (i + 1));
                 return;
             }
 
-            int slot = findHotbar(p, stack ->
-                    stack.isIn(ItemTags.SAPLINGS));
+            int slot = findHotbar(p,
+                    stack -> stack.isIn(ItemTags.SAPLINGS));
 
             if (slot < 0) {
                 stop(c, "No saplings in your hotbar");
@@ -172,7 +169,6 @@ public final class FarmBot {
 
             p.getInventory().setSelectedSlot(slot);
 
-            // Aim at the top face of the ground block.
             Vec3d hitPos = new Vec3d(
                     groundPos[i].getX() + 0.5,
                     groundPos[i].getY() + 1.0,
@@ -182,22 +178,16 @@ public final class FarmBot {
             aimAt(p, hitPos);
 
             BlockHitResult hit = new BlockHitResult(
-                    hitPos,
-                    Direction.UP,
-                    groundPos[i],
-                    false
-            );
+                    hitPos, Direction.UP, groundPos[i], false);
 
             c.interactionManager.interactBlock(
-                    p, Hand.MAIN_HAND, hit
-            );
+                    p, Hand.MAIN_HAND, hit);
             p.swingHand(Hand.MAIN_HAND);
 
             cooldown = FarmConfig.actionDelayTicks;
             return;
         }
 
-        // All four planting positions contain saplings.
         for (int i = 0; i < 4; i++) {
             plantAttempts[i] = 0;
         }
@@ -205,8 +195,6 @@ public final class FarmBot {
         boneMealUses = 0;
         state = State.BONEMEAL;
     }
-
-    // ---- Bone meal --------------------------------------------------------
 
     private static void boneMeal(MinecraftClient c) {
         ClientPlayerEntity p = c.player;
@@ -236,12 +224,12 @@ public final class FarmBot {
         }
 
         if (boneMealUses >= FarmConfig.maxBoneMealPerSapling) {
-            stop(c, "Tree didn't grow - check the space above it");
+            stop(c, "Tree did not grow; check the space above it");
             return;
         }
 
-        int slot = findHotbar(p, stack ->
-                stack.isOf(Items.BONE_MEAL));
+        int slot = findHotbar(p,
+                stack -> stack.isOf(Items.BONE_MEAL));
 
         if (slot < 0) {
             stop(c, "No bone meal in your hotbar");
@@ -254,19 +242,15 @@ public final class FarmBot {
         aimAt(p, hitPos);
 
         BlockHitResult hit = new BlockHitResult(
-                hitPos, Direction.UP, sapling, false
-        );
+                hitPos, Direction.UP, sapling, false);
 
         c.interactionManager.interactBlock(
-                p, Hand.MAIN_HAND, hit
-        );
+                p, Hand.MAIN_HAND, hit);
         p.swingHand(Hand.MAIN_HAND);
 
         boneMealUses++;
         cooldown = FarmConfig.actionDelayTicks;
     }
-
-    // ---- Chopping ---------------------------------------------------------
 
     private static void chop(MinecraftClient c) {
         ClientPlayerEntity p = c.player;
@@ -285,7 +269,7 @@ public final class FarmBot {
 
                 if (anyLog) {
                     if (++idleTicks > 60) {
-                        stop(c, "Bottom log is out of reach - stand closer");
+                        stop(c, "Bottom log out of reach; stand closer");
                     }
                     return;
                 }
@@ -326,15 +310,13 @@ public final class FarmBot {
         );
 
         c.interactionManager.updateBlockBreakingProgress(
-                chopTarget, face
-        );
-
+                chopTarget, face);
         p.swingHand(Hand.MAIN_HAND);
     }
 
-    // ---- Camera aiming ----------------------------------------------------
+    private static void aimAt(
+            ClientPlayerEntity player, Vec3d target) {
 
-    private static void aimAt(ClientPlayerEntity player, Vec3d target) {
         Vec3d eye = player.getEyePos();
 
         double dx = target.x - eye.x;
@@ -344,19 +326,14 @@ public final class FarmBot {
         double horizontal = Math.sqrt(dx * dx + dz * dz);
 
         float yaw = (float) Math.toDegrees(
-                Math.atan2(dz, dx)
-        ) - 90.0F;
+                Math.atan2(dz, dx)) - 90.0F;
 
         float pitch = (float) -Math.toDegrees(
-                Math.atan2(dy, horizontal)
-        );
+                Math.atan2(dy, horizontal));
 
-        // Set both the camera angles and player angles.
         player.setYaw(yaw);
         player.setPitch(pitch);
     }
-
-    // ---- Helpers ----------------------------------------------------------
 
     private static boolean isLog(MinecraftClient c, BlockPos pos) {
         return c.world.getBlockState(pos).isIn(BlockTags.LOGS);
@@ -364,8 +341,8 @@ public final class FarmBot {
 
     private static BlockPos findBottomLogInReach(MinecraftClient c) {
         ClientPlayerEntity p = c.player;
-        Vec3d eye = p.getEyePos();
 
+        Vec3d eye = p.getEyePos();
         double reach = p.getBlockInteractionRange() - 0.5;
         double reachSq = reach * reach;
 
@@ -376,8 +353,7 @@ public final class FarmBot {
             if (!isLog(c, plantPos[i])) continue;
 
             double distance = eye.squaredDistanceTo(
-                    Vec3d.ofCenter(plantPos[i])
-            );
+                    Vec3d.ofCenter(plantPos[i]));
 
             if (distance <= reachSq && distance < bestDist) {
                 bestDist = distance;
@@ -390,20 +366,20 @@ public final class FarmBot {
 
     private static boolean isShardAxe(ItemStack stack) {
         if (!stack.isIn(ItemTags.AXES)) return false;
+
         if (!FarmConfig.requireNamedAxe) return true;
 
         String name = stack.getName().getString()
                 .toLowerCase(Locale.ROOT);
 
         return name.contains(
-                FarmConfig.axeNameContains.toLowerCase(Locale.ROOT)
-        );
+                FarmConfig.axeNameContains.toLowerCase(Locale.ROOT));
     }
 
     private static int findHotbar(
             ClientPlayerEntity player,
-            Predicate<ItemStack> test
-    ) {
+            Predicate<ItemStack> test) {
+
         for (int i = 0; i < 9; i++) {
             ItemStack stack = player.getInventory().getStack(i);
 
@@ -418,9 +394,7 @@ public final class FarmBot {
     private static void msg(MinecraftClient c, String text) {
         if (c.player != null) {
             c.player.sendMessage(
-                    Text.literal("[Shard Farm] " + text),
-                    true
-            );
+                    Text.literal("[Shard Farm] " + text), true);
         }
     }
 }
